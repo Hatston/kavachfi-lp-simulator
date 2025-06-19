@@ -1,0 +1,170 @@
+/* Main Content Styling */
+.main .block-container {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+    max-width: 95%;
+}
+
+/* Sidebar Styling */
+.css-1d391kg {
+    background-color: #0E1117;
+    padding: 2rem 1.5rem;
+    border-right: 1px solid #2A2F45;
+}
+
+/* Headers */
+h1, h2, h3, h4, h5, h6 {
+    color: #F8F9FA !important;
+}
+
+/* Buttons */
+.stButton>button {
+    background: linear-gradient(90deg, #2E86AB 0%, #1C5D7A 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 0.5rem 1.5rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.stButton>button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Sliders */
+.stSlider .st-ae {
+    background-color: #2E86AB !important;
+}
+
+.stSlider .st-af {
+    color: #F8F9FA !important;
+}
+
+/* Metrics */
+.metric-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #F7B801;
+    margin: 0.5rem 0;
+}
+
+.metric-label {
+    font-size: 0.9rem;
+    color: #8B95A5;
+    margin: 0;
+}
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 10px;
+    margin-bottom: 1.5rem;
+}
+
+.stTabs [data-baseweb="tab"] {
+    background-color: #1E2130;
+    border-radius: 6px;
+    padding: 0.75rem 1.5rem;
+    margin-right: 0;
+    transition: all 0.3s ease;
+    color: #8B95A5;
+    font-weight: 500;
+}
+
+.stTabs [data-baseweb="tab"]:hover {
+    background-color: #2A2F45;
+    color: #F8F9FA;
+}
+
+.stTabs [aria-selected="true"] {
+    background-color: #2E86AB;
+    color: white;
+}
+
+/* Cards */
+.css-1r6slb0 {
+    background-color: #1E2130;
+    border-radius: 10px;
+    padding: 1.5rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    border: 1px solid #2A2F45;
+}
+
+/* Tables */
+table {
+    background-color: #1E2130 !important;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+thead tr th {
+    background-color: #2A2F45 !important;
+    color: #F8F9FA !important;
+    font-weight: 600 !important;
+}
+
+tbody tr {
+    border-bottom: 1px solid #2A2F45;
+}
+
+tbody tr:last-child {
+    border-bottom: none;
+}
+
+tbody tr:hover {
+    background-color: #2A2F45 !important;
+}
+
+/* Input fields */
+.stTextInput>div>div>input, 
+.stNumberInput>div>div>input,
+.stSelectbox>div>div>div>div {
+    background-color: #1E2130;
+    border: 1px solid #2A2F45;
+    color: #F8F9FA;
+    border-radius: 6px;
+    padding: 0.5rem 1rem;
+}
+
+/* Tooltips */
+.css-1qg05tj {
+    background-color: #2A2F45 !important;
+    color: #F8F9FA !important;
+    border: 1px solid #3B4252;
+    border-radius: 6px;
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #1E2130;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #2E86AB;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #1C5D7A;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .main .block-container {
+        padding: 1rem;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        padding: 0.5rem 1rem;
+        font-size: 0.9rem;
+    }
+}
