@@ -4,19 +4,19 @@ KavachFi LP Fee Simulation Dashboard
 This Streamlit application simulates Liquidity Provider (LP) fees and returns
 for the KavachFi perpetual DEX with CLOB and native insurance on Rise Chain.
 """
+import base64
 import streamlit as st
 import numpy as np
 import pandas as pd
+import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
 import time
-import base64
-from io import StringIO
+from datetime import datetime, timedelta
 
-# Import simulation modules
-from kavachfi_lp_simulator.market_simulator import MarketSimulator
+from kavachfi_lp_simulator.market_simulator import MarketSimulator, AssetType
 from kavachfi_lp_simulator.fee_calculator import FeeCalculator
 from kavachfi_lp_simulator.visualization import SimulationVisualizer
+from kavachfi_lp_simulator.market_data import MarketDataFetcher, AssetType as MarketAssetType
 
 # Set page config
 st.set_page_config(
@@ -41,9 +41,15 @@ except:
 if 'simulation_results' not in st.session_state:
     st.session_state.simulation_results = None
 
-# Initialize simulation components
+# Initialize simulation components with default values
 market_simulator = MarketSimulator()
-fee_calculator = FeeCalculator()
+# Initialize with default values that will be updated during simulation
+fee_calculator = FeeCalculator(
+    lp_pool_size=1000000,  # Default 1M pool size
+    fee_rate=0.001,        # Default 0.1% fee rate
+    spread=0.0005,         # Default 5 bps spread
+    insurance_fee_rate=0.0005  # Default 5 bps insurance fee rate
+)
 visualizer = SimulationVisualizer()
 
 # Sidebar - Simulation Parameters
@@ -196,42 +202,73 @@ with st.sidebar:
             start_time = end_time - timedelta(days=simulation_days)
             time_index = pd.date_range(start=start_time, end=end_time, periods=periods)
             
-            # Run market simulation with asset-specific parameters
+            # Run simulation
+            market_simulator = MarketSimulator()
             market_data = market_simulator.run_simulation(
                 asset_type=asset_type,
                 periods=periods,
-                base_volume=st.session_state.base_volume / 24,  # Convert daily to hourly
+                initial_price=st.session_state.base_volume / 24,  # Convert daily to hourly
+                base_volume=st.session_state.base_volume,
                 base_vol=st.session_state.volatility,
+                vol_cluster_strength=0.5,
+                volume_vol=0.5,
+                volume_correlation=0.5,
                 base_liquidation_size=st.session_state.liquidation_size,
-                eth_scenario=eth_scenario,
-                seed=int(time.time())  # Use current time as seed for reproducibility
+                liquidation_prob=0.5,
+                min_price_move=0.01,
+                eth_scenario=eth_scenario if asset_type == AssetType.ETH else None
             )
             
-            # Calculate fees and returns
-            fee_data = fee_calculator.run_calculations(
-                volume_series=market_data['volume_series'],
+            # Update fee calculator with current parameters
+            fee_calculator.lp_pool_size = st.session_state.lp_pool_size
+            fee_calculator.fee_rate = st.session_state.trading_fee
+            fee_calculator.spread = 0.0005
+            fee_calculator.insurance_fee_rate = 0.001
+            
+            # Calculate fees
+            fee_data = fee_calculator.calculate_fees(
                 price_series=market_data['price_series'],
-                liquidation_events=market_data['liquidation_events'],
-                trading_fee_rate=st.session_state.trading_fee,
-                lp_pool_size=st.session_state.lp_pool_size,
-                base_spread=0.0005,  # 5 bps base spread
-                vol_to_spread_impact=0.1  # How much volatility affects the spread
+                volume_series=market_data['volume_series'],
+                liquidation_events=market_data['liquidation_events']
+            )
+            
+            # Get real market data for comparison
+            market_data_fetcher = MarketDataFetcher()
+            market_asset_type = {
+                AssetType.BTC: MarketAssetType.BTC,
+                AssetType.ETH: MarketAssetType.ETH,
+                AssetType.SOL: MarketAssetType.SOL
+            }.get(asset_type, MarketAssetType.BTC)
+            
+            # Merge real and simulated data
+            merged_data = market_data_fetcher.merge_with_simulation(
+                sim_time_index=time_index,
+                sim_price_series=market_data['price_series'],
+                sim_volume_series=market_data['volume_series'],
+                asset_type=market_asset_type
             )
             
             # Store results in session state
             st.session_state.simulation_results = {
                 'time_index': time_index,
-                'market_data': market_data,
+                'market_data': {
+                    **market_data,
+                    'real_price': merged_data.get('real_price', np.array([])),
+                    'real_volume': merged_data.get('real_volume', np.array([])),
+                    'has_real_data': merged_data.get('has_real_data', False)
+                },
                 'fee_data': fee_data,
-                'parameters': {
-                    'asset_type': market_data['asset_name'],
-                    'scenario': market_data.get('scenario'),
+                'simulation_params': {
+                    'asset_type': asset_type,
+                    'initial_price': st.session_state.base_volume / 24,
                     'base_volume': st.session_state.base_volume,
-                    'trading_fee': st.session_state.trading_fee,
                     'lp_pool_size': st.session_state.lp_pool_size,
-                    'volatility': market_data['parameters']['base_vol'],
-                    'liquidation_size': st.session_state.liquidation_size,
-                    'simulation_days': simulation_days
+                    'fee_rate': st.session_state.trading_fee,
+                    'spread': 0.0005,
+                    'insurance_fee_rate': 0.001,
+                    'simulation_days': simulation_days,
+                    'eth_scenario': eth_scenario if asset_type == AssetType.ETH else None,
+                    'has_real_data': merged_data.get('has_real_data', False)
                 }
             }
             
@@ -240,12 +277,16 @@ with st.sidebar:
                 st.session_state.eth_scenario_metrics = {}
                 all_eth_scenarios = market_simulator.get_available_eth_scenarios()
                 
+                # Calculate metrics for the current scenario
+                total_liquidations = np.sum(market_data['liquidation_events'] > 0)
+                total_volume = np.sum(market_data['volume_series'])
+                
                 # Store current scenario results
                 st.session_state.eth_scenario_metrics[eth_scenario] = {
                     'APY': np.mean(fee_data['apr_series']),  # Use average of APR series
                     'Total Fees': np.sum(fee_data['total_revenue']),
-                    'Liquidation Events': market_data['total_liquidations'],
-                    'Avg. Daily Volume': market_data['total_volume'] / simulation_days
+                    'Liquidation Events': total_liquidations,
+                    'Avg. Daily Volume': total_volume / simulation_days
                 }
                 
                 # Run other scenarios
@@ -260,22 +301,24 @@ with st.sidebar:
                         scenario_market_data = market_simulator.run_simulation(
                             asset_type=asset_type,
                             periods=periods,
-                            base_volume=st.session_state.base_volume / 24,
+                            initial_price=st.session_state.base_volume / 24,
+                            base_volume=st.session_state.base_volume,
                             base_vol=st.session_state.volatility,
+                            vol_cluster_strength=0.5,
+                            volume_vol=0.5,
+                            volume_correlation=0.5,
                             base_liquidation_size=st.session_state.liquidation_size,
+                            liquidation_prob=0.5,
+                            min_price_move=0.01,
                             eth_scenario=scenario,
                             seed=int(time.time()) + i + 1  # Different seed for each scenario
                         )
                         
                         # Calculate fees for this scenario
-                        scenario_fee_data = fee_calculator.run_calculations(
-                            volume_series=scenario_market_data['volume_series'],
+                        scenario_fee_data = fee_calculator.calculate_fees(
                             price_series=scenario_market_data['price_series'],
-                            liquidation_events=scenario_market_data['liquidation_events'],
-                            trading_fee_rate=st.session_state.trading_fee,
-                            lp_pool_size=st.session_state.lp_pool_size,
-                            base_spread=0.0005,
-                            vol_to_spread_impact=0.1
+                            volume_series=scenario_market_data['volume_series'],
+                            liquidation_events=scenario_market_data['liquidation_events']
                         )
                         
                         # Store scenario results
@@ -314,7 +357,7 @@ else:
     time_index = results['time_index']
     market_data = results['market_data']
     fee_data = results['fee_data']
-    params = results['parameters']
+    params = results['simulation_params']
     
     # Display asset and scenario info
     st.markdown("---")
@@ -330,8 +373,8 @@ else:
     metrics = visualizer.create_metric_cards(
         apr_series=fee_data['apr_series'],
         total_revenue=fee_data['total_revenue'],
-        lp_pool_size=st.session_state.lp_pool_size,
-        simulation_days=results['parameters']['simulation_days']
+        lp_pool_size=params['lp_pool_size'],
+        simulation_days=params['simulation_days']
     )
     
     # Display simulation results with asset and scenario info
@@ -442,13 +485,26 @@ else:
         col1, col2 = st.columns(2)
         
         with col1:
+            # Convert asset name to AssetType enum
+            asset_enum = {
+                'BTC': AssetType.BTC,
+                'ETH': AssetType.ETH,
+                'SOL': AssetType.SOL
+            }.get(asset_name, None)
+            
             # Price chart
             price_fig = visualizer.create_price_chart(
                 time_index=time_index,
                 price_series=market_data['price_series'],
-                title=f"{asset_name} Price Movement"
+                asset_type=asset_enum,
+                title=f"{asset_name} Price Movement",
+                real_price_series=market_data.get('real_price')
             )
             st.plotly_chart(price_fig, use_container_width=True)
+            
+            # Add note about real data if available
+            if results['simulation_params'].get('has_real_data', False):
+                st.caption("ℹ️ Real market data is shown as a dotted line for comparison")
         
         with col2:
             # Volume chart
@@ -456,9 +512,15 @@ else:
                 time_index=time_index,
                 volume_series=market_data['volume_series'],
                 liquidation_events=market_data['liquidation_events'],
-                title=f"{asset_name} Trading Volume & Liquidations"
+                title=f"{asset_name} Trading Volume & Liquidations",
+                real_volume_series=market_data.get('real_volume'),
+                asset_type=asset_enum
             )
             st.plotly_chart(volume_fig, use_container_width=True)
+            
+            # Add note about real data if available
+            if results['simulation_params'].get('has_real_data', False):
+                st.caption("ℹ️ Real market volume is shown as light gray bars (6h average)")
         
         # Second row: APR and Revenue
         col3, col4 = st.columns(2)
@@ -549,12 +611,15 @@ else:
         returns = np.diff(np.log(market_data['price_series']))
         rolling_vol = pd.Series(returns).rolling(window=24).std() * np.sqrt(365 * 24)  # Annualized
         
+        # Align the arrays by trimming the fee data to match the rolling volatility
+        aligned_fees = fee_data['total_revenue'][-len(rolling_vol):]  # Take the last N elements to match rolling window
+        
         # Calculate correlation between volatility and revenue
-        valid_idx = ~np.isnan(rolling_vol) & ~np.isnan(fee_data['total_revenue'])
+        valid_idx = ~np.isnan(rolling_vol) & ~np.isnan(aligned_fees)
         if valid_idx.sum() > 1:  # Need at least 2 points to calculate correlation
             corr = np.corrcoef(
                 rolling_vol[valid_idx], 
-                fee_data['total_revenue'][valid_idx]
+                aligned_fees[valid_idx]
             )[0, 1]
         else:
             corr = np.nan
@@ -563,11 +628,11 @@ else:
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.metric("📊 Avg. Volatility", f"{rolling_vol.mean() * 100:.1f}%")
+            st.metric("📊 Avg. Volatility", f"{rolling_vol[valid_idx].mean() * 100:.1f}%" if valid_idx.any() else "N/A")
         with col2:
-            st.metric("📈 Max Volatility", f"{rolling_vol.max() * 100:.1f}%")
+            st.metric("📈 Max Volatility", f"{rolling_vol[valid_idx].max() * 100:.1f}%" if valid_idx.any() else "N/A")
         with col3:
-            st.metric("🔗 Volatility-Revenue Correlation", f"{corr:.2f}")
+            st.metric("🔗 Volatility-Revenue Correlation", f"{corr:.2f}" if not np.isnan(corr) else "N/A")
     
     with tab4:
         # Data export
@@ -600,23 +665,25 @@ else:
         
         # Display simulation parameters
         st.write("### Simulation Parameters")
-        params = results['parameters']
+        params = results['simulation_params']
         param_df = pd.DataFrame({
             'Parameter': [
                 'Base Daily Volume ($)',
                 'Trading Fee (%)',
                 'LP Pool Size ($)',
-                'Market Volatility',
-                'Base Liquidation Size ($)',
+                'Fee Rate',
+                'Spread',
+                'Insurance Fee Rate',
                 'Simulation Duration (days)'
             ],
             'Value': [
-                f"${params['base_volume']:,.0f}",
-                f"{params['trading_fee'] * 100:.2f}%",
-                f"${params['lp_pool_size']:,.0f}",
-                f"{params['volatility']:.3f}",
-                f"${params['liquidation_size']:,.0f}",
-                f"{params['simulation_days']}"
+                f"${params.get('base_volume', 0):,.0f}",
+                f"{params.get('fee_rate', 0) * 100:.2f}%",
+                f"${params.get('lp_pool_size', 0):,.0f}",
+                f"{params.get('fee_rate', 0):.4f}",
+                f"{params.get('spread', 0):.4f}",
+                f"{params.get('insurance_fee_rate', 0) * 100:.2f}%",
+                f"{params.get('simulation_days', 0)}"
             ]
         })
         st.table(param_df)

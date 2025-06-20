@@ -9,9 +9,25 @@ class FeeCalculator:
     Calculates LP fees and returns based on market conditions and parameters.
     """
     
-    def __init__(self):
+    def __init__(self, lp_pool_size: float, fee_rate: float, spread: float, insurance_fee_rate: float):
+        """
+        Initialize the FeeCalculator with LP pool and fee parameters.
+        
+        Args:
+            lp_pool_size: Total size of the LP pool in USD
+            fee_rate: Trading fee rate (e.g., 0.001 for 0.1%)
+            spread: Base spread for spread revenue calculation
+            insurance_fee_rate: Insurance fee rate on trading volume
+        """
+        self.lp_pool_size = lp_pool_size
+        self.fee_rate = fee_rate
+        self.spread = spread
+        self.insurance_fee_rate = insurance_fee_rate
+        
+        # Initialize result attributes
         self.trading_fees = None
         self.spread_revenue = None
+        self.insurance_fees = None
         self.total_revenue = None
         self.cumulative_fees = None
         self.apr_series = None
@@ -94,6 +110,71 @@ class FeeCalculator:
         # Annualize the return
         return period_return * periods_per_year
     
+    def calculate_fees(
+        self,
+        price_series: np.ndarray,
+        volume_series: np.ndarray,
+        liquidation_events: np.ndarray,
+        periods_per_year: int = 24 * 365
+    ) -> Dict[str, np.ndarray]:
+        """
+        Calculate all fees and returns using instance parameters.
+        
+        Args:
+            price_series: Array of prices
+            volume_series: Array of trading volumes
+            liquidation_events: Array of liquidation event sizes
+            periods_per_year: Number of periods in a year
+            
+        Returns:
+            dict: Dictionary containing all calculated metrics
+        """
+        # Calculate trading fees
+        trading_fees = self.calculate_trading_fees(
+            volume_series=volume_series,
+            liquidation_events=liquidation_events,
+            trading_fee_rate=self.fee_rate
+        )
+        
+        # Calculate spread revenue
+        spread_revenue = self.calculate_spread_revenue(
+            volume_series=volume_series,
+            price_series=price_series,
+            base_spread=self.spread,
+            vol_to_spread_impact=0.1  # Default value
+        )
+        
+        # Calculate insurance fees
+        self.insurance_fees = volume_series * self.insurance_fee_rate
+        
+        # Calculate total revenue (trading fees + spread revenue - insurance fees)
+        total_revenue = trading_fees + spread_revenue - self.insurance_fees
+        
+        # Calculate cumulative fees
+        cumulative_fees = np.cumsum(total_revenue)
+        
+        # Calculate APR series
+        self.apr_series = self.calculate_apr(
+            revenue_series=total_revenue,
+            lp_pool_size=self.lp_pool_size,
+            periods_per_year=periods_per_year
+        )
+        
+        # Store results
+        self.trading_fees = trading_fees
+        self.spread_revenue = spread_revenue
+        self.total_revenue = total_revenue
+        self.cumulative_fees = cumulative_fees
+        
+        return {
+            'trading_fees': trading_fees,
+            'spread_revenue': spread_revenue,
+            'insurance_fees': self.insurance_fees,
+            'total_revenue': total_revenue,
+            'cumulative_fees': cumulative_fees,
+            'apr_series': self.apr_series
+        }
+        
     def run_calculations(
         self,
         volume_series: np.ndarray,
@@ -106,60 +187,18 @@ class FeeCalculator:
         periods_per_year: int = 24 * 365
     ) -> Dict[str, np.ndarray]:
         """
-        Run all fee and return calculations.
+        Run all fee and return calculations (legacy method).
         
-        Args:
-            volume_series: Array of trading volumes
-            price_series: Array of prices
-            liquidation_events: Array of liquidation event sizes
-            trading_fee_rate: Trading fee rate (e.g., 0.001 for 0.1%)
-            lp_pool_size: Total size of the LP pool
-            base_spread: Base spread (as a fraction of price)
-            vol_to_spread_impact: How much volatility affects the spread
-            periods_per_year: Number of periods in a year
-            
-        Returns:
-            dict: Dictionary containing all calculated metrics
+        This is kept for backward compatibility but delegates to calculate_fees.
         """
-        # Calculate trading fees
-        trading_fees = self.calculate_trading_fees(
+        # Update instance variables if different from constructor
+        self.fee_rate = trading_fee_rate
+        self.lp_pool_size = lp_pool_size
+        self.spread = base_spread
+        
+        return self.calculate_fees(
+            price_series=price_series,
             volume_series=volume_series,
             liquidation_events=liquidation_events,
-            trading_fee_rate=trading_fee_rate
-        )
-        
-        # Calculate spread revenue
-        spread_revenue = self.calculate_spread_revenue(
-            volume_series=volume_series,
-            price_series=price_series,
-            base_spread=base_spread,
-            vol_to_spread_impact=vol_to_spread_impact
-        )
-        
-        # Calculate total revenue
-        total_revenue = trading_fees + spread_revenue
-        
-        # Calculate cumulative fees
-        cumulative_fees = np.cumsum(total_revenue)
-        
-        # Calculate APR series
-        apr_series = self.calculate_apr(
-            revenue_series=total_revenue,
-            lp_pool_size=lp_pool_size,
             periods_per_year=periods_per_year
         )
-        
-        # Store results
-        self.trading_fees = trading_fees
-        self.spread_revenue = spread_revenue
-        self.total_revenue = total_revenue
-        self.cumulative_fees = cumulative_fees
-        self.apr_series = apr_series
-        
-        return {
-            'trading_fees': trading_fees,
-            'spread_revenue': spread_revenue,
-            'total_revenue': total_revenue,
-            'cumulative_fees': cumulative_fees,
-            'apr_series': apr_series
-        }
